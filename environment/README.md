@@ -126,3 +126,210 @@ By structuring the topology in this way, the evaluation environment supports:
 * reproduction of common cyberattack chains
 * appropriate contextual information for SOC usability testing
 
+
+# Simulated Attack Scenario Details
+
+This document summarizes the detailed host settings and attack timelines used to generate synthetic logs for the usability evaluation.
+The content corresponds directly to the CSV data used in the log-generation process but is reorganized for clarity.
+
+---
+
+# 1. Host Configuration
+
+Below is the list of hosts included in the simulated enterprise environment.
+Roles, IP addresses, and provided services are shown along with additional notes when relevant.
+
+## 1.1 Host List
+
+### External / Attacker Infrastructure
+
+* **Attacker** — 172.18.10.1
+* **C&C Server** — 172.18.20.1
+
+### Network Infrastructure
+
+* **Router** — 192.168.0.1
+* **L2 Switch A** — 192.168.0.2
+
+  * Port mirroring enabled for IDS packet capture
+* **Firewall**
+
+  * 192.168.0.3
+  * 192.168.1.254
+  * 192.168.2.254
+  * 192.168.3.254
+* **L2 Switch B** — 192.168.1.1
+* **WLAN Access Point** — 192.168.1.2
+
+### Internal User Devices
+
+* Desktop X — 192.168.1.10 (ssh)
+* Desktop Y — 192.168.1.11
+* Desktop Z — 192.168.1.12
+* Laptop P — 192.168.1.101
+* Laptop Q — 192.168.1.102
+* Laptop R — 192.168.1.103
+* Laptop S — 192.168.1.104
+
+### Internal Servers
+
+* IDS — 192.168.2.1
+* Active Directory — 192.168.2.2
+* File Server — 192.168.2.3 (SMB)
+* Application Server — 192.168.2.4 (Web)
+* Log Server — 192.168.2.5 (Syslog)
+* SIEM — 192.168.2.6
+* DHCP Server — 192.168.2.7
+* VPN Server — 192.168.2.8 (IKE, IPSec ESP)
+
+### DMZ Servers
+
+* DNS Server — 192.168.3.1
+* Mail Server — 192.168.3.2
+* Web Server — 192.168.3.3
+* Proxy Server — 192.168.3.4
+
+---
+
+# 2. Attack Scenario 1 — Malware Infection
+
+This scenario models a typical intrusion chain where an internal user executes a malicious attachment, allowing the attacker to pivot and exfiltrate data.
+
+## 2.1 Timeline Overview
+
+### 14:26:16 — Malware Execution
+
+* User on **192.168.1.101 (Laptop P)** executes a malicious email attachment.
+* Device contacts **C2 server (172.18.20.1)** via HTTPS.
+
+### 14:26:19 — Command and Control
+
+* C2 instructs malware to download components.
+* Traffic: HTTPS from 172.18.20.1 → 192.168.1.101.
+
+### 14:26:26 — Malware Installation
+
+* Malware installs and activates (no direct logs generated).
+
+---
+
+## 2.2 Host Discovery Phase (14:31:24–14:44:37)
+
+The infected host performs extensive scanning across all subnets.
+
+### Network Scanning
+
+* Command: `nmap -sn 192.168.*.*`
+* Source: 192.168.1.101
+* Targets: All devices from 192.168.1.1 to 192.168.3.254
+
+### Service Enumeration
+
+Commands include:
+
+* `nmap -sV 192.168.1.1–104`
+* `nmap -sV 192.168.2.1–8`
+* `nmap -sV 192.168.3.1–4`
+
+### OS Detection
+
+Commands include:
+
+* `nmap -sO <all hosts in 192.168.*.*>`
+
+### Phase End
+
+* 14:44:37 — Information gathering completed.
+
+---
+
+## 2.3 Firewall Evasion & Configuration Tampering (14:59:56–15:06:11)
+
+### 14:59:56
+
+* Infected host accesses firewall Web UI:
+
+  * TCP/443 from 192.168.1.101 → 192.168.1.254
+
+### Login Attempts
+
+* Multiple HTTPS login attempts to firewall admin interface.
+
+### 15:06:11 — Firewall Configuration Change
+
+* Attacker modifies firewall settings to suppress logs and bypass detection.
+* After this moment, the SIEM receives no further logs from affected segments.
+
+---
+
+## 2.4 Data Exfiltration Phase (15:21–15:40)
+
+### Access to File Server (SMB)
+
+* 192.168.1.101 connects to **192.168.2.3** via SMB.
+* Attacker:
+
+  * Browses folders
+  * Reads sensitive files
+  * Downloads all contents
+  * Compresses data (zip)
+
+### Exfiltration (15:40:07)
+
+* Compressed data sent via HTTPS to **C&C server 172.18.20.1**.
+
+---
+
+# 3. Attack Scenario 2 — Insider Threat
+
+This scenario represents an attacker who begins with stolen credentials, enabling unauthorized access through SSH and subsequent data theft.
+
+## 3.1 Baseline Activity
+
+* A legitimate pattern of scheduled SSH access:
+
+  * Desktop X (192.168.1.10) → Web Server (192.168.3.3)
+* Protocol: TCP/22
+
+---
+
+## 3.2 Unauthorized SSH Login Attempts
+
+### 01:34:49 — Suspicious SSH from External Source
+
+* Attacker at **172.18.10.1** uses stolen credentials
+* SSH login to **Web Server (192.168.3.3)**
+* Protocol: TCP/22
+
+### 01:39:49 — Lateral Movement Attempt
+
+* SSH login attempt from Web Server → Desktop X
+* Source: 192.168.3.3
+* Dest: 192.168.1.10
+
+---
+
+## 3.3 Data Theft Phase (01:48–02:07)
+
+### SMB Access to File Server
+
+* 192.168.1.101 (compromised endpoint) → 192.168.2.3 (File Server)
+
+Attacker:
+
+* Browses multiple folders
+* Opens sensitive documents
+* Downloads entire directory
+* Compresses files into ZIP
+
+### Exfiltration
+
+* 02:07:07 — Data sent to **C&C server 172.18.20.1** via HTTPS.
+
+---
+
+# 4. Notes on Log Generation
+
+* All timeline events were converted into structured Syslog-format entries.
+* Communication details (source, destination, protocol, timestamps) exactly match the tables above and were used as ground truth for the SIEM ingestion pipeline.
+* Firewall configuration change in Scenario 1 intentionally suppresses subsequent logs to simulate real-world detection evasion.
