@@ -61,3 +61,4 @@ Although the main research paper is still under review, this repository is inten
 
 All materials in this repository are distributed under the following license:
 
+Apache-2.0 license
